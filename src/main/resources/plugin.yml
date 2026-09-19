@@ -1,0 +1,20 @@
+name: NpcTopKill
+version: 1.0.0
+main: com.example.npctopkill.NpcTopKill
+api-version: '1.21'
+authors: [YourName]
+description: Hiển thị Top Kill lên NPC với Citizens
+depend: [Citizens]
+softdepend: [PlaceholderAPI]
+
+commands:
+  npctopkill:
+    description: Lệnh quản lý plugin NpcTopKill
+    usage: /<command> <create|center|reload>
+    aliases: [ntk]
+    permission: npctopkill.admin
+
+permissions:
+  npctopkill.admin:
+    description: Quyền sử dụng mọi lệnh của plugin
+    default: op
