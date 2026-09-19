@@ -1,0 +1,30 @@
+# ============================================
+#  NpcTopKill - Cấu hình
+# ============================================
+
+# Thời gian delay giữa các lần cập nhật (giây)
+update-interval: 30
+
+# Bật/tắt hiệu ứng particle
+particles:
+  enabled: true
+  top-1: FLAME
+  top-2: VILLAGER_HAPPY
+  top-3: ENCHANTMENT_TABLE
+
+# Hologram nổi trên đầu NPC
+hologram:
+  enabled: true
+  height-offset: 2.3
+  line-1: "&6&l🔥 TOP %top% SÁT THỦ 🔥"
+  line-2: "&eTên: &f%player_name%"
+  line-3: "&cSố Kill: &f%kills%"
+
+# Thông báo soán ngôi Top 1
+broadcast:
+  enabled: true
+  message: "&c&l[SOÁN NGÔI] &e%new_player% &fđã vượt mặt &c%old_player% &fđể trở thành &6&lTOP 1 SÁT THỦ &f với &c%kills% &fkills!"
+  sound: ENTITY_ENDER_DRAGON_GROWL
+
+# Danh sách NPC đã tạo (plugin tự quản lý)
+npcs: {}
