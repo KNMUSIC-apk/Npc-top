@@ -1,0 +1,122 @@
+# ==========================================================
+#  GitHub Actions Workflow - Build NpcTopKill Plugin
+#  Tự động build Maven JAR mỗi khi push code lên GitHub
+# ==========================================================
+
+name: Build NpcTopKill
+
+# ==========================================================
+#  TRIGGERS - Khi nào workflow này chạy
+# ==========================================================
+on:
+  # Chạy khi push lên các branch chính
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+  # Chạy khi có Pull Request nhắm vào main/master
+  pull_request:
+    branches:
+      - main
+      - master
+
+  # Chạy khi tạo tag (ví dụ v1.0.0) → dùng để release
+  # Ví dụ: git tag v1.0.0 && git push origin v1.0.0
+  # (bỏ comment nếu muốn tự động release)
+  # push:
+  #   tags:
+  #     - 'v*'
+
+  # Cho phép chạy thủ công từ tab Actions
+  workflow_dispatch:
+
+# ==========================================================
+#  JOBS
+# ==========================================================
+jobs:
+  # ----------------------------------------------------------
+  #  JOB: BUILD
+  # ----------------------------------------------------------
+  build:
+    name: Build JAR
+    runs-on: ubuntu-latest
+
+    steps:
+      # Bước 1: Checkout code từ repo
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # Bước 2: Cài đặt JDK 21 (cần cho Spigot 1.21+)
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'      # Eclipse Temurin (Adoptium)
+          cache: 'maven'               # Cache ~/.m2 để build nhanh hơn
+
+      # Bước 3: Cấp quyền thực thi cho mvnw (nếu có Maven Wrapper)
+      - name: 🔧 Grant execute permission for mvnw
+        run: chmod +x mvnw || true
+
+      # Bước 4: Build plugin bằng Maven
+      #  - --batch-mode: không in màu, dễ đọc log CI
+      #  - -DskipTests: bỏ qua test (nếu có) để build nhanh
+      - name: 🏗️ Build with Maven
+        run: mvn --batch-mode --no-transfer-progress clean package -DskipTests
+
+      # Bước 5: Đọc version từ pom.xml để đặt tên artifact đẹp
+      - name: 📌 Read version from pom.xml
+        id: version
+        run: |
+          VERSION=$(mvn --batch-mode --no-transfer-progress help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      # Bước 6: Upload JAR đã build thành artifact
+      #  → Tải được từ tab Actions → chọn workflow run → Artifacts
+      - name: 📤 Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NpcTopKill-${{ steps.version.outputs.version }}
+          path: target/NpcTopKill-*.jar
+          if-no-files-found: error
+          retention-days: 30
+
+  # ----------------------------------------------------------
+  #  JOB: RELEASE (chỉ chạy khi push tag v*)
+  # ----------------------------------------------------------
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    # Chỉ chạy khi sự kiện là push tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+
+    # Cần quyền ghi để tạo release
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: 🏗️ Build with Maven
+        run: mvn --batch-mode --no-transfer-progress clean package -DskipTests
+
+      # Tạo GitHub Release kèm file JAR
+      - name: 🎉 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/NpcTopKill-*.jar
+          generate_release_notes: true
+          draft: false
+          prerelease: false
