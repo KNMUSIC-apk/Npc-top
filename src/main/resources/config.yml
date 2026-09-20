@@ -2,25 +2,40 @@
 #  NpcTopKill - Cấu hình
 # ============================================
 
-# Thời gian delay giữa các lần cập nhật (giây)
+# Thời gian delay giữa các lần cập nhật top (giây)
 update-interval: 30
 
-# Bật/tắt hiệu ứng particle
+# ============================================
+#  PARTICLE EFFECTS
+# ============================================
 particles:
   enabled: true
-  top-1: FLAME
-  top-2: VILLAGER_HAPPY
-  top-3: ENCHANTMENT_TABLE
+  # Tần suất spawn particle (ticks). 10 ticks = 0.5s
+  interval-ticks: 10
+  # Tên particle theo Bukkit 1.21
+  top-1: FLAME              # Top 1: lửa
+  top-2: VILLAGER_HAPPY     # Top 2: hạt xanh của villager
+  top-3: ENCHANTMENT_TABLE  # Top 3: chữ phép thuật
 
-# Hologram nổi trên đầu NPC
+# ============================================
+#  HOLOGRAM
+# ============================================
 hologram:
   enabled: true
-  height-offset: 2.3
+  # Chiều cao hologram so với NPC (2.6 để tránh đè lên đầu NPC)
+  height-offset: 2.6
+  # Khoảng cách giữa các dòng (0.32 cho thoáng)
+  line-spacing: 0.32
+  # Text hiển thị khi chưa có ai giữ top
+  empty-name: "&7Đang cập nhật..."
+  # Format từng dòng
   line-1: "&6&l🔥 TOP %top% SÁT THỦ 🔥"
   line-2: "&eTên: &f%player_name%"
   line-3: "&cSố Kill: &f%kills%"
 
-# Thông báo soán ngôi Top 1
+# ============================================
+#  BROADCAST SOÁN NGÔI TOP 1
+# ============================================
 broadcast:
   enabled: true
   message: "&c&l[SOÁN NGÔI] &e%new_player% &fđã vượt mặt &c%old_player% &fđể trở thành &6&lTOP 1 SÁT THỦ &f với &c%kills% &fkills!"
