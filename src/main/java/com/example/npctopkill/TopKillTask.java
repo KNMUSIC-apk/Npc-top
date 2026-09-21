@@ -1,5 +1,6 @@
 package com.example.npctopkill;
 
+import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -18,29 +19,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
-/**
- * Task chạy định kỳ để cập nhật top kill.
- *
- * Luồng thực thi 3 pha:
- *   1. Main thread: lấy snapshot offline players (an toàn với Bukkit API)
- *   2. Async thread: tính toán (đọc file stats, sort) — phần nặng
- *   3. Main thread: cập nhật Citizens NPC + hologram + broadcast
- */
 public class TopKillTask extends BukkitRunnable {
 
     private final NpcTopKill plugin;
-
-    // State hiện tại của top (chỉ truy cập trên main thread)
     private final Map<Integer, String> currentTop = new HashMap<>();
     private final Map<Integer, Integer> currentKills = new HashMap<>();
-
-    // FIX #3: Guard chống chồng lấn khi interval nhỏ + xử lý chậm
     private final AtomicBoolean running = new AtomicBoolean(false);
-
-    // FIX #4: Cờ lần chạy đầu — tránh broadcast "soán ngôi" ảo khi plugin vừa bật
     private boolean firstRun = true;
-
-    // FIX #8: Cache top 3 cho PlaceholderAPI đọc (volatile để đọc an toàn từ thread khác)
     private volatile List<TopEntry> cachedTop3 = Collections.emptyList();
 
     public TopKillTask(NpcTopKill plugin) {
@@ -49,40 +34,34 @@ public class TopKillTask extends BukkitRunnable {
 
     @Override
     public void run() {
-        // FIX #3: Nếu lần chạy trước chưa xong thì skip
-        if (!running.compareAndSet(false, true)) {
-            return;
-        }
+        if (!running.compareAndSet(false, true)) return;
 
-        // Pha 1: Lấy snapshot trên main thread
         Bukkit.getScheduler().runTask(plugin, () -> {
             OfflinePlayer[] snapshot;
             try {
                 snapshot = Bukkit.getOfflinePlayers();
             } catch (Throwable t) {
-                plugin.getLogger().log(Level.SEVERE, "Không lấy được danh sách offline players", t);
+                plugin.getLogger().log(Level.SEVERE, "Không lấy được offline players", t);
                 running.set(false);
                 return;
             }
 
-            // Pha 2: Tính toán nặng trên async thread
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 try {
                     List<TopEntry> top3 = computeTop3(snapshot);
-                    cachedTop3 = top3; // FIX #8: cập nhật cache
+                    cachedTop3 = top3;
 
-                    // Pha 3: Cập nhật Citizens/hologram/broadcast — phải trên main thread
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         try {
                             processTopUpdate(top3);
                         } catch (Throwable t) {
-                            plugin.getLogger().log(Level.SEVERE, "Lỗi khi cập nhật top", t);
+                            plugin.getLogger().log(Level.SEVERE, "Lỗi cập nhật top", t);
                         } finally {
                             running.set(false);
                         }
                     });
                 } catch (Throwable t) {
-                    plugin.getLogger().log(Level.SEVERE, "Lỗi khi tính top kill", t);
+                    plugin.getLogger().log(Level.SEVERE, "Lỗi tính top kill", t);
                     running.set(false);
                 }
             });
@@ -90,21 +69,26 @@ public class TopKillTask extends BukkitRunnable {
     }
 
     /**
-     * Tính top 3 kill — chạy trên async thread.
-     * getStatistic() là I/O đọc file world/playerdata/*.dat nên đây là phần nặng.
+     * Tính top 3 kill — chạy async.
+     *
+     * MỚI: Bỏ qua người chơi đang bị ban (không xuất hiện trên BXH).
      */
     private List<TopEntry> computeTop3(OfflinePlayer[] snapshot) {
         List<TopEntry> list = new ArrayList<>();
         for (OfflinePlayer op : snapshot) {
             try {
                 String name = op.getName();
-                if (name == null) continue; // bỏ qua player chưa từng join
+                if (name == null) continue;
+
+                // === LỌC NGƯỜI CHƠI BỊ BAN ===
+                if (isPlayerBanned(op, name)) continue;
+
                 int kills = op.getStatistic(Statistic.PLAYER_KILLS);
                 if (kills > 0) {
                     list.add(new TopEntry(name, kills));
                 }
             } catch (Exception ignored) {
-                // Player corrupt stats — bỏ qua an toàn
+                // Player corrupt stats hoặc lỗi đọc file → bỏ qua an toàn
             }
         }
         list.sort((a, b) -> Integer.compare(b.kills, a.kills));
@@ -112,8 +96,31 @@ public class TopKillTask extends BukkitRunnable {
     }
 
     /**
-     * Cập nhật NPC — PHẢI chạy trên main thread (Citizens API yêu cầu).
+     * Kiểm tra player có bị ban không.
+     *
+     * Cách 1 (ưu tiên): OfflinePlayer.isBanned() — có sẵn trên Paper/Spigot.
+     * Cách 2 (fallback): check trực tiếp qua BanList nếu method throw exception.
+     *
+     * @return true nếu player bị ban (cần skip khỏi BXH)
      */
+    private boolean isPlayerBanned(OfflinePlayer op, String name) {
+        // Cách 1: dùng API có sẵn
+        try {
+            if (op.isBanned()) return true;
+        } catch (Throwable ignored) {
+            // Một số server phiên bản cũ có thể không hỗ trợ → fallback
+        }
+
+        // Cách 2: fallback check qua BanList
+        try {
+            BanList banList = Bukkit.getBanList(BanList.Type.NAME);
+            if (banList != null && banList.isBanned(name)) return true;
+        } catch (Throwable ignored) {
+        }
+
+        return false;
+    }
+
     private void processTopUpdate(List<TopEntry> top3) {
         String oldTop1Name = currentTop.get(1);
         String newTop1Name = null;
@@ -131,7 +138,6 @@ public class TopKillTask extends BukkitRunnable {
             boolean nameChanged = !Objects.equals(oldName, newName);
             boolean killsChanged = (oldKills == null) || (oldKills != newKills);
 
-            // Chỉ update khi có thay đổi (name hoặc kills) — tránh spam SkinTrait
             if (nameChanged || killsChanged) {
                 currentTop.put(rank, newName);
                 currentKills.put(rank, newKills);
@@ -144,22 +150,13 @@ public class TopKillTask extends BukkitRunnable {
             }
         }
 
-        // FIX #4: Chỉ broadcast khi:
-        //  - Không phải lần chạy đầu tiên
-        //  - Có top 1 cũ + mới, và khác nhau
-        if (!firstRun
-                && oldTop1Name != null
-                && newTop1Name != null
+        if (!firstRun && oldTop1Name != null && newTop1Name != null
                 && !oldTop1Name.equals(newTop1Name)) {
             broadcastTop1Change(oldTop1Name, newTop1Name, newTop1Kills);
         }
-
         firstRun = false;
     }
 
-    /**
-     * Broadcast thông báo soán ngôi Top 1 kèm âm thanh.
-     */
     private void broadcastTop1Change(String oldPlayer, String newPlayer, int kills) {
         if (!plugin.getConfig().getBoolean("broadcast.enabled", true)) return;
 
@@ -183,18 +180,13 @@ public class TopKillTask extends BukkitRunnable {
         }
     }
 
-    /** FIX #8: Expose cache cho PlaceholderAPI (tránh duyệt offline players lại). */
     public List<TopEntry> getCachedTop3() {
         return cachedTop3;
     }
 
-    // ==================== INNER CLASS ====================
-
-    /** Snapshot bất biến của một entry top — an toàn khi share giữa các thread. */
     public static class TopEntry {
         public final String name;
         public final int kills;
-
         public TopEntry(String name, int kills) {
             this.name = name;
             this.kills = kills;
